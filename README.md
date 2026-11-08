@@ -36,3 +36,7 @@
     npm test                          # расчёты, API (server) и сквозные тесты календаря (client)
     npm run typecheck -w server
     npm run typecheck -w client
+
+## Установка на телефон
+
+Сайт работает как приложение (PWA): манифест, иконки, service worker. iPhone: Safari → «Поделиться» → «На экран Домой». Android: Chrome → меню → «Установить приложение».

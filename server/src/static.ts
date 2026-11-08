@@ -7,6 +7,10 @@ import express, { type Express } from 'express';
 export function serveClient(app: Express, dir: string): boolean {
   const index = join(dir, 'index.html');
   if (!existsSync(index)) return false;
+  app.get('/sw.js', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.type('application/javascript').sendFile(join(dir, 'sw.js'));
+  });
   app.use(express.static(dir, { index: false, maxAge: '1h' }));
   app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(index));
   return true;

@@ -48,3 +48,21 @@ test('сборка клиента: корень и клиентские пути
   assert.equal(api.body.error, 'Нужен вход');
   await request(app).get('/api/health').expect(200);
 });
+
+test('PWA: манифест, иконка и service worker отдаются с правильными заголовками', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dist-'));
+  writeFileSync(join(dir, 'index.html'), '<!doctype html><title>x</title>');
+  writeFileSync(join(dir, 'sw.js'), 'self.addEventListener("fetch",()=>{})');
+  writeFileSync(join(dir, 'manifest.webmanifest'), '{"name":"x"}');
+  writeFileSync(join(dir, 'icon-192.png'), 'png');
+
+  const app = await makeApp();
+  serveClient(app, dir);
+
+  const sw = await request(app).get('/sw.js').expect(200);
+  assert.match(sw.headers['content-type'], /javascript/);
+  assert.match(sw.headers['cache-control'], /no-cache/);
+  await request(app).get('/manifest.webmanifest').expect(200);
+  const icon = await request(app).get('/icon-192.png').expect(200);
+  assert.match(icon.headers['content-type'], /png/);
+});

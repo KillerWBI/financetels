@@ -20,7 +20,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; font-size: 15px; line-height: 1.5; }
+body { margin: 0; font-size: 15px; line-height: 1.5; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 h1, h2, h3 { font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', sans-serif; font-weight: 700; margin: 0; letter-spacing: 0.005em; }
 h2 { font-size: 1.6rem; margin-bottom: 0.25rem; }
 h3 { font-size: 1.1rem; }
