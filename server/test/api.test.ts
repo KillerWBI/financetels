@@ -121,3 +121,31 @@ test('валидация: плохая дата и месяц', async () => {
   await request(app).put('/api/shifts').set(auth()).send({ dates: ['2026-13-1'], kind: 'day' }).expect(400);
   await request(app).get('/api/summary?from=2026-1').set(auth()).expect(400);
 });
+
+test('смена с ручным признаком выходного: сохранение, чтение, смена типа, сброс', async () => {
+  // 2026-11-11 — среда
+  await request(app).put('/api/shifts').set(auth()).send({ dates: ['2026-11-11'], kind: 'night', extra: true, weekend: true }).expect(200);
+  let list = await request(app).get('/api/shifts?from=2026-11-01&to=2026-11-30').set(auth()).expect(200);
+  let s = list.body.find((x: any) => x.date === '2026-11-11');
+  assert.equal(s.weekend, true);
+  assert.equal(s.extra, true);
+  assert.equal(s.pay.mult, 2.5);
+  assert.equal(s.pay.gross, 922.5);
+
+  // правка той же даты: убираем «доп.», возвращаем «по календарю»
+  await request(app).put('/api/shifts').set(auth()).send({ dates: ['2026-11-11'], kind: 'night', extra: false, weekend: null }).expect(200);
+  list = await request(app).get('/api/shifts?from=2026-11-01&to=2026-11-30').set(auth()).expect(200);
+  s = list.body.find((x: any) => x.date === '2026-11-11');
+  assert.equal(s.weekend, null);
+  assert.equal(s.pay.mult, 1);
+
+  // без поля weekend — по календарю (обратная совместимость клиента)
+  await request(app).put('/api/shifts').set(auth()).send({ dates: ['2026-11-12'], kind: 'day' }).expect(200);
+  list = await request(app).get('/api/shifts?from=2026-11-01&to=2026-11-30').set(auth()).expect(200);
+  assert.equal(list.body.find((x: any) => x.date === '2026-11-12').weekend, null);
+
+  // полное удаление
+  await request(app).post('/api/shifts/clear').set(auth()).send({ dates: ['2026-11-11', '2026-11-12'] }).expect(200);
+  list = await request(app).get('/api/shifts?from=2026-11-01&to=2026-11-30').set(auth()).expect(200);
+  assert.equal(list.body.length, 0);
+});

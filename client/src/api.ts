@@ -56,7 +56,8 @@ export const api = {
   saveSettings: (s: Partial<Settings>) => req<Settings>('PUT', '/settings', s),
 
   shifts: (from: string, to: string) => req<ShiftRow[]>('GET', `/shifts?from=${from}&to=${to}`),
-  putShifts: (dates: string[], kind: 'day' | 'night', extra: boolean) => req('PUT', '/shifts', { dates, kind, extra }),
+  putShifts: (dates: string[], kind: 'day' | 'night', extra: boolean, weekend: boolean | null = null) =>
+    req('PUT', '/shifts', { dates, kind, extra, weekend }),
   clearShifts: (dates: string[]) => req('POST', '/shifts/clear', { dates }),
 
   summary: (from: string, months: number) => req<Summary>('GET', `/summary?from=${from}&months=${months}`),

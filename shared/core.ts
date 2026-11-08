@@ -45,6 +45,9 @@ export interface Shift {
   date: string; // дата начала смены
   kind: ShiftKind;
   extra: boolean; // доп. смена
+  // Ручной признак выходного: true — считать выходным (например, праздник),
+  // false — считать будним, null/не задан — по календарю (суббота и воскресенье).
+  weekend?: boolean | null;
 }
 
 export interface ShiftPay {
@@ -115,8 +118,12 @@ function nightOverlapHours(start: number, end: number, s: Settings): number {
   return total;
 }
 
-export function shiftMultiplier(s: Settings, date: string, extra: boolean): number {
-  const weekend = isWeekend(date);
+export function effectiveWeekend(date: string, override?: boolean | null): boolean {
+  return override ?? isWeekend(date);
+}
+
+export function shiftMultiplier(s: Settings, date: string, extra: boolean, weekendOverride?: boolean | null): number {
+  const weekend = effectiveWeekend(date, weekendOverride);
   if (extra && weekend) return s.extraWeekendMult;
   if (extra) return s.extraMult;
   if (weekend) return s.weekendMult;
@@ -131,7 +138,7 @@ export function shiftPay(s: Settings, shift: Shift): ShiftPay {
   const paid = Math.min(s.paidHours, elapsed);
   const nightHours = Math.min(nightOverlapHours(start, end, s), paid);
   const dayHours = paid - nightHours;
-  const mult = shiftMultiplier(s, shift.date, shift.extra);
+  const mult = shiftMultiplier(s, shift.date, shift.extra, shift.weekend);
   const gross = round2((dayHours * s.dayRate + nightHours * s.nightRate) * mult);
   return {
     gross,
@@ -140,7 +147,7 @@ export function shiftPay(s: Settings, shift: Shift): ShiftPay {
     paidHours: paid,
     nightHours,
     dayHours,
-    weekend: isWeekend(shift.date),
+    weekend: effectiveWeekend(shift.date, shift.weekend),
   };
 }
 

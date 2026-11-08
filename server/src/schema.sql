@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS shifts (
   UNIQUE (user_id, date)
 );
 
+-- weekend: NULL — по календарю, TRUE — считать выходным, FALSE — считать будним.
+-- ADD COLUMN IF NOT EXISTS — миграция для баз, созданных до появления поля.
+ALTER TABLE shifts ADD COLUMN IF NOT EXISTS weekend BOOLEAN;
+
 CREATE TABLE IF NOT EXISTS expenses (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -50,6 +50,7 @@ const shiftsPutSchema = z.object({
   dates: z.array(date).min(1).max(366),
   kind: z.enum(['day', 'night']),
   extra: z.boolean().default(false),
+  weekend: z.boolean().nullable().default(null),
 });
 const shiftsClearSchema = z.object({ dates: z.array(date).min(1).max(366) });
 const expenseSchema = z.object({
@@ -147,7 +148,12 @@ export function createApp(db: Db, jwtSecret = process.env.JWT_SECRET ?? 'dev-sec
     return { ...DEFAULT_SETTINGS, ...stored };
   };
 
-  const mapShift = (r: any): Shift => ({ date: r.date, kind: r.kind, extra: Boolean(r.extra) });
+  const mapShift = (r: any): Shift => ({
+    date: r.date,
+    kind: r.kind,
+    extra: Boolean(r.extra),
+    weekend: r.weekend === null || r.weekend === undefined ? null : Boolean(r.weekend),
+  });
   const mapExpense = (r: any) => ({
     id: Number(r.id),
     name: r.name,
@@ -172,7 +178,7 @@ export function createApp(db: Db, jwtSecret = process.env.JWT_SECRET ?? 'dev-sec
   });
 
   const loadShifts = async (userId: number): Promise<Shift[]> =>
-    (await db.query('SELECT date, kind, extra FROM shifts WHERE user_id = $1 ORDER BY date', [userId])).rows.map(mapShift);
+    (await db.query('SELECT date, kind, extra, weekend FROM shifts WHERE user_id = $1 ORDER BY date', [userId])).rows.map(mapShift);
   const loadExpenses = async (userId: number): Promise<Expense[]> =>
     (await db.query('SELECT * FROM expenses WHERE user_id = $1 ORDER BY id', [userId])).rows.map(mapExpense);
   const loadIncomes = async (userId: number): Promise<ManualIncome[]> =>
@@ -204,7 +210,7 @@ export function createApp(db: Db, jwtSecret = process.env.JWT_SECRET ?? 'dev-sec
       const to = date.parse(req.query.to);
       const [settings, rows] = await Promise.all([
         loadSettings(req.userId),
-        db.query('SELECT date, kind, extra FROM shifts WHERE user_id = $1 AND date >= $2 AND date <= $3 ORDER BY date', [
+        db.query('SELECT date, kind, extra, weekend FROM shifts WHERE user_id = $1 AND date >= $2 AND date <= $3 ORDER BY date', [
           req.userId,
           from,
           to,
@@ -220,9 +226,9 @@ export function createApp(db: Db, jwtSecret = process.env.JWT_SECRET ?? 'dev-sec
       const b = shiftsPutSchema.parse(req.body);
       for (const d of new Set(b.dates)) {
         await db.query(
-          `INSERT INTO shifts (user_id, date, kind, extra) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (user_id, date) DO UPDATE SET kind = $3, extra = $4`,
-          [req.userId, d, b.kind, b.extra],
+          `INSERT INTO shifts (user_id, date, kind, extra, weekend) VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id, date) DO UPDATE SET kind = $3, extra = $4, weekend = $5`,
+          [req.userId, d, b.kind, b.extra, b.weekend],
         );
       }
       res.json({ ok: true, count: new Set(b.dates).size });
