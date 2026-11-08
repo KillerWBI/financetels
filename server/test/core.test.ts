@@ -160,5 +160,5 @@ test('ручной выходной попадает в сумму месяца'
   ], '2026-11');
   assert.equal(m.gross, 668); // 334 + 334
   assert.equal(m.weekendBonusGross, 167);
-  assert.equal(m.bonusGross, 267.2); // 15% × 668 + 167
+  assert.equal(m.bonusGross, 292.25); // 15% × (668 + 167) + 167
 });

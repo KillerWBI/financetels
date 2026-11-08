@@ -164,7 +164,7 @@ export interface MonthWork {
   gross: number;
   net: number;
   weekendBonusGross: number; // надбавка за выходные, вошла в премию
-  bonusGross: number; // премия за этот месяц: % от зарплаты + надбавка за выходные (выплата позже)
+  bonusGross: number; // премия за этот месяц: % от (зарплата + надбавка за выходные) + сама надбавка (выплата позже)
   bonusNet: number;
   shifts: number;
   extraShifts: number;
@@ -186,7 +186,7 @@ export function monthWork(s: Settings, shifts: Shift[], month: string): MonthWor
   }
   gross = round2(gross);
   weekendBonus = round2(weekendBonus);
-  const bonusGross = round2(gross * s.bonusPct + weekendBonus);
+  const bonusGross = round2((gross + weekendBonus) * s.bonusPct + weekendBonus);
   return {
     month,
     gross,
