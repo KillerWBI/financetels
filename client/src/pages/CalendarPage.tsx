@@ -3,7 +3,7 @@ import { api, type ShiftRow, type Summary } from '../api';
 import { addMonths, currentMonth, dayMonth, monthName, monthTitle, pln, today } from '../fmt';
 import { daysInMonth, isWeekend } from '../../../shared/core';
 
-const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const WEEKDAYS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const WEEKDAY_FULL = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
 
 const dateOf = (month: string, day: number): string => `${month}-${String(day).padStart(2, '0')}`;
@@ -208,7 +208,7 @@ export function CalendarPage() {
   };
 
   const first = new Date(`${month}-01T00:00:00Z`).getUTCDay();
-  const offset = (first + 6) % 7;
+  const offset = first;
   const cells: (number | null)[] = [...Array(offset).fill(null), ...Array.from({ length: daysInMonth(month) }, (_, i) => i + 1)];
   const cur = summary?.months[0];
   const st = summary?.settings;
@@ -216,6 +216,7 @@ export function CalendarPage() {
   const one = selected.length === 1 ? selected[0] : null;
   const oneShift = one ? byDate.get(one) : undefined;
   const totalNet = withShift.reduce((a, s) => a + s.pay.net, 0);
+  const totalBonus = withShift.reduce((a, s) => a + s.pay.weekendBonusNet, 0);
 
   const reason = (s: ShiftRow): string => {
     const manual = s.weekend !== null && s.weekend !== undefined;
@@ -250,7 +251,7 @@ export function CalendarPage() {
 
         <div className="grid" role="grid" aria-label={`Календарь, ${monthTitle(month)}`}>
           {WEEKDAYS.map((w, i) => (
-            <div key={w} className={'wd' + (i >= 5 ? ' we' : '')} role="columnheader">{w}</div>
+            <div key={w} className={'wd' + (i === 0 || i === 6 ? ' we' : '')} role="columnheader">{w}</div>
           ))}
           {cells.map((d, i) => {
             if (d === null) return <div key={`e${i}`} className="cell empty" />;
@@ -279,6 +280,7 @@ export function CalendarPage() {
                 <span className="dtop">
                   <span className="dnum">{d}</span>
                   {s && s.pay.mult !== 1 && <span className="dmult">{fmtMult(s.pay.mult)}</span>}
+                  {s && s.pay.mult === 1 && s.pay.weekendBonusGross > 0 && <span className="dmult">+50%</span>}
                 </span>
                 {s && <span className="dkind">{s.kind === 'day' ? 'День' : 'Ночь'}{s.extra ? ' · доп.' : ''}</span>}
                 {s && <span className="dpay">{Math.round(s.pay.net)}</span>}
@@ -380,10 +382,16 @@ export function CalendarPage() {
                   <dt>Множитель</dt><dd>{fmtMult(oneShift.pay.mult)}</dd>
                   <dt>Brutto</dt><dd>{pln(oneShift.pay.gross)}</dd>
                   <dt>На руки</dt><dd><strong>{pln(oneShift.pay.net)}</strong></dd>
+                  {oneShift.pay.weekendBonusGross > 0 && (
+                    <>
+                      <dt>Надбавка за выходной → в премию</dt>
+                      <dd>{pln(oneShift.pay.weekendBonusNet)} на руки (brutto {pln(oneShift.pay.weekendBonusGross)})</dd>
+                    </>
+                  )}
                 </dl>
               )}
               {!one && withShift.length > 0 && (
-                <p className="calc-total">На руки за выбранные смены: <strong>{pln(totalNet)}</strong></p>
+                <p className="calc-total">На руки за выбранные смены: <strong>{pln(totalNet)}</strong>{totalBonus > 0 && <> + в премию {pln(totalBonus)}</>}</p>
               )}
               {one && !oneShift && <p className="hint">В этот день смены нет. Выберите «Дневная» или «Ночная», чтобы добавить.</p>}
 

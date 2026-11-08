@@ -30,13 +30,20 @@ test('ночная смена: 3 ч × 33.40 + 7 ч × 38.40 = 369', () => {
   assert.equal(p.net, 284.13);
 });
 
-test('выходной: ×1.5 по дню начала смены (суббота и воскресенье)', () => {
-  assert.equal(shiftPay(S, { date: '2026-11-07', kind: 'day', extra: false }).gross, 501);
-  assert.equal(shiftPay(S, { date: '2026-11-08', kind: 'day', extra: false }).gross, 501);
-  // ночная смена, начатая в пятницу, — будний множитель
-  assert.equal(shiftPay(S, { date: '2026-11-06', kind: 'night', extra: false }).mult, 1);
-  // ночная смена, начатая в воскресенье, — выходной
-  assert.equal(shiftPay(S, { date: '2026-11-08', kind: 'night', extra: false }).mult, 1.5);
+test('выходной: зарплата обычная, надбавка +50% уходит в премию (по дню начала смены)', () => {
+  const sat = shiftPay(S, { date: '2026-11-07', kind: 'day', extra: false });
+  assert.equal(sat.gross, 334);
+  assert.equal(sat.mult, 1);
+  assert.equal(sat.weekendBonusGross, 167);
+  assert.equal(sat.weekendBonusNet, 128.59);
+  assert.equal(shiftPay(S, { date: '2026-11-08', kind: 'day', extra: false }).weekendBonusGross, 167);
+  // ночная смена, начатая в пятницу, — будний день, надбавки нет
+  const fri = shiftPay(S, { date: '2026-11-06', kind: 'night', extra: false });
+  assert.equal(fri.weekendBonusGross, 0);
+  // ночная смена, начатая в воскресенье, — выходной: 369 в зарплату + 184.5 в премию
+  const sun = shiftPay(S, { date: '2026-11-08', kind: 'night', extra: false });
+  assert.equal(sun.gross, 369);
+  assert.equal(sun.weekendBonusGross, 184.5);
 });
 
 test('доп. смена: ×2 в будни, ×2.5 в выходной', () => {
@@ -126,21 +133,23 @@ test('ручной признак выходного: ночная смена в
   assert.equal(cal.mult, 1);
   assert.equal(cal.weekend, false);
   const manual = shiftPay(S, { date: '2026-11-11', kind: 'night', extra: false, weekend: true });
-  assert.equal(manual.mult, 1.5);
+  assert.equal(manual.mult, 1);
   assert.equal(manual.weekend, true);
-  assert.equal(manual.gross, 553.5); // 369 × 1.5
+  assert.equal(manual.gross, 369);
+  assert.equal(manual.weekendBonusGross, 184.5);
 });
 
 test('комбинации: ночная + доп + выходной = ×2.5', () => {
   const p = shiftPay(S, { date: '2026-11-11', kind: 'night', extra: true, weekend: true });
   assert.equal(p.mult, 2.5);
   assert.equal(p.gross, 922.5); // 369 × 2.5
+  assert.equal(p.weekendBonusGross, 0); // у доп. смены надбавки в премию нет
 });
 
 test('суббота, отмеченная как будний день, считается без надбавки; null — по календарю', () => {
   // 2026-11-07 — суббота
-  assert.equal(shiftPay(S, { date: '2026-11-07', kind: 'day', extra: false, weekend: false }).gross, 334);
-  assert.equal(shiftPay(S, { date: '2026-11-07', kind: 'day', extra: false, weekend: null }).gross, 501);
+  assert.equal(shiftPay(S, { date: '2026-11-07', kind: 'day', extra: false, weekend: false }).weekendBonusGross, 0);
+  assert.equal(shiftPay(S, { date: '2026-11-07', kind: 'day', extra: false, weekend: null }).weekendBonusGross, 167);
   assert.equal(shiftPay(S, { date: '2026-11-07', kind: 'day', extra: true, weekend: false }).gross, 668);
 });
 
@@ -149,5 +158,7 @@ test('ручной выходной попадает в сумму месяца'
     { date: '2026-11-11', kind: 'day', extra: false, weekend: true },
     { date: '2026-11-12', kind: 'day', extra: false },
   ], '2026-11');
-  assert.equal(m.gross, 835); // 501 + 334
+  assert.equal(m.gross, 668); // 334 + 334
+  assert.equal(m.weekendBonusGross, 167);
+  assert.equal(m.bonusGross, 267.2); // 15% × 668 + 167
 });

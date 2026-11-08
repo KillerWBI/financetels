@@ -68,6 +68,26 @@ async function open() {
 }
 
 describe('календарь: настройка дня', () => {
+  it('неделя начинается с воскресенья', async () => {
+    await open();
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toEqual(['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']);
+    // 1 ноября 2026 — воскресенье, значит пустых клеток перед ним нет
+    const cells = Array.from(document.querySelectorAll('.grid > .cell'));
+    expect(cells[0].getAttribute('aria-label')).toMatch(/^1 ноября/);
+  });
+
+  it('обычная смена в выходной: в зарплату обычная сумма, надбавка в премию', async () => {
+    const user = await open();
+    await user.click(cell(7)); // суббота
+    await user.click(seg('Дневная'));
+    await waitFor(() => expect(cell(7).getAttribute('aria-label')).toMatch(/дневная/));
+    expect(cell(7).getAttribute('aria-label')).toMatch(/257,18/);
+    const [s] = await serverShifts();
+    expect(s.pay.gross).toBe(334);
+    expect(s.pay.weekendBonusGross).toBe(167);
+  });
+
   it('добавить смену, поменять тип, доп. и выходной в любой комбинации, потом убрать', async () => {
     const user = await open();
     expect(screen.getByText(/Выберите день в календаре/)).toBeTruthy();

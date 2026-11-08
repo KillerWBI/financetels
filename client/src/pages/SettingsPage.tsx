@@ -33,7 +33,7 @@ const GROUPS: { title: string; fields: Field[] }[] = [
   {
     title: 'Множители',
     fields: [
-      { key: 'weekendMult', label: 'Выходной (суббота и воскресенье)', kind: 'number', hint: 'Считается по дню начала смены.' },
+      { key: 'weekendMult', label: 'Выходной (суббота и воскресенье)', kind: 'number', hint: 'Считается по дню начала смены. Зарплата за такую смену обычная, надбавка (множитель минус 1) идёт в премию. Доп. смены не затронуты.' },
       { key: 'extraMult', label: 'Доп. смена в будни', kind: 'number' },
       { key: 'extraWeekendMult', label: 'Доп. смена в выходной', kind: 'number' },
     ],

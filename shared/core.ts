@@ -51,7 +51,9 @@ export interface Shift {
 }
 
 export interface ShiftPay {
-  gross: number;
+  gross: number; // в зарплату (без надбавки за выходной у обычной смены)
+  weekendBonusGross: number; // надбавка за выходной у обычной смены: уходит в премию
+  weekendBonusNet: number;
   net: number;
   mult: number;
   paidHours: number;
@@ -122,11 +124,12 @@ export function effectiveWeekend(date: string, override?: boolean | null): boole
   return override ?? isWeekend(date);
 }
 
+// Множитель, который идёт в зарплату. У обычной смены в выходной он равен 1:
+// надбавка (weekendMult - 1, т.е. +50%) уходит в премию. Доп. смены не затронуты.
 export function shiftMultiplier(s: Settings, date: string, extra: boolean, weekendOverride?: boolean | null): number {
   const weekend = effectiveWeekend(date, weekendOverride);
   if (extra && weekend) return s.extraWeekendMult;
   if (extra) return s.extraMult;
-  if (weekend) return s.weekendMult;
   return 1;
 }
 
@@ -139,15 +142,20 @@ export function shiftPay(s: Settings, shift: Shift): ShiftPay {
   const nightHours = Math.min(nightOverlapHours(start, end, s), paid);
   const dayHours = paid - nightHours;
   const mult = shiftMultiplier(s, shift.date, shift.extra, shift.weekend);
-  const gross = round2((dayHours * s.dayRate + nightHours * s.nightRate) * mult);
+  const base = dayHours * s.dayRate + nightHours * s.nightRate;
+  const gross = round2(base * mult);
+  const weekend = effectiveWeekend(shift.date, shift.weekend);
+  const weekendBonusGross = !shift.extra && weekend ? round2(base * (s.weekendMult - 1)) : 0;
   return {
     gross,
+    weekendBonusGross,
+    weekendBonusNet: round2(weekendBonusGross * s.netCoef),
     net: round2(gross * s.netCoef),
     mult,
     paidHours: paid,
     nightHours,
     dayHours,
-    weekend: effectiveWeekend(shift.date, shift.weekend),
+    weekend,
   };
 }
 
@@ -155,7 +163,8 @@ export interface MonthWork {
   month: string;
   gross: number;
   net: number;
-  bonusGross: number; // премия, начисленная за этот месяц (выплата позже)
+  weekendBonusGross: number; // надбавка за выходные, вошла в премию
+  bonusGross: number; // премия за этот месяц: % от зарплаты + надбавка за выходные (выплата позже)
   bonusNet: number;
   shifts: number;
   extraShifts: number;
@@ -167,17 +176,21 @@ export interface MonthWork {
 export function monthWork(s: Settings, shifts: Shift[], month: string): MonthWork {
   const list = shifts.filter((x) => monthOf(x.date) === month);
   let gross = 0;
+  let weekendBonus = 0;
   let hours = 0;
   for (const sh of list) {
     const p = shiftPay(s, sh);
     gross += p.gross;
+    weekendBonus += p.weekendBonusGross;
     hours += p.paidHours;
   }
   gross = round2(gross);
-  const bonusGross = round2(gross * s.bonusPct);
+  weekendBonus = round2(weekendBonus);
+  const bonusGross = round2(gross * s.bonusPct + weekendBonus);
   return {
     month,
     gross,
+    weekendBonusGross: weekendBonus,
     net: round2(gross * s.netCoef),
     bonusGross,
     bonusNet: round2(bonusGross * s.netCoef),
