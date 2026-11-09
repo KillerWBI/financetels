@@ -12,6 +12,7 @@ export function BalancePage() {
   const [data, setData] = useState<BalanceData | null>(null);
   const [error, setError] = useState('');
   const [amount, setAmount] = useState('');
+  const [saved, setSaved] = useState<string | null>(null); // null — поле не трогали, подставляем текущее
   const [date, setDate] = useState(today());
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -30,13 +31,17 @@ export function BalancePage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const n = Number(amount.replace(/\s/g, '').replace(',', '.'));
+    const parse = (x: string): number => Number(x.replace(/\s/g, '').replace(',', '.'));
+    const n = parse(amount);
     if (!Number.isFinite(n)) return setError('Введите сумму цифрами');
+    const sv = saved === null || saved.trim() === '' ? null : parse(saved);
+    if (sv !== null && (!Number.isFinite(sv) || sv < 0)) return setError('Отложено: введите сумму цифрами, не меньше нуля');
     setBusy(true);
     setError('');
     try {
-      await api.addCheck(date, n, note.trim());
+      await api.addCheck(date, n, sv, note.trim());
       setAmount('');
+      setSaved(null);
       setNote('');
       load();
     } catch (err) {
@@ -62,6 +67,33 @@ export function BalancePage() {
           Сначала введите, сколько денег у вас реально сейчас (ниже). От этой суммы считаются все расчёты. Пока её нет, расчёт идёт от нуля.
         </p>
       )}
+
+      <div className="stats">
+        <div className="panel">
+          <h3>На руках</h3>
+          <p className="big-num">{pln(data.expectedNow)}</p>
+          <p className="muted">можно тратить (счёт и наличные, по расчёту)</p>
+        </div>
+        <div className="panel">
+          <h3>Отложено</h3>
+          <p className="big-num">{pln(data.saved)}</p>
+          <p className="muted">не тратится</p>
+        </div>
+        <div className="panel">
+          <h3>Сальдо сейчас</h3>
+          <p className={'big-num ' + tone(data.total)}>{pln(data.total)}</p>
+          <p className="muted">на руках + отложено</p>
+        </div>
+        <div className="panel">
+          <h3>Потенциально</h3>
+          <p className={'big-num ' + tone(data.potential.totalWithPotential)}>{pln(data.potential.totalWithPotential)}</p>
+          <p className="muted">
+            {data.potential.items.length
+              ? `с ожидаемыми ${data.potential.items.map((i) => `${i.label} ${i.amount > 0 ? '+' : ''}${pln(i.amount)} (${dayMonth(i.date)})`).join(', ')}`
+              : 'ожидаемых доходов пока нет, добавьте их во вкладке «Доходы»'}
+          </p>
+        </div>
+      </div>
 
       <div className={'panel verdict ' + v.cls}>
         <h3>{v.title}</h3>
@@ -94,13 +126,13 @@ export function BalancePage() {
       </div>
 
       <form className="panel" onSubmit={submit}>
-        <h3>Сколько реально сейчас</h3>
+        <h3>Сколько реально сейчас (сверка раз в месяц и после больших трат)</h3>
         <p className="muted">
-          Посмотрите баланс в банке и наличные и впишите итог. Расчёт сверится с реальностью и дальше пойдёт от вашей суммы.
+          Впишите, сколько реально на руках и сколько всего отложено. Расчёт сверится с реальностью и дальше пойдёт от этих сумм. Раз в месяц достаточно обновлять обе суммы: траты и откладывание подтянутся сами.
         </p>
         {lc && (
           <p className="hint">
-            Последняя проверка {dayMonth(lc.date)}: {pln(lc.amount)}
+            Последняя проверка {dayMonth(lc.date)}: на руках {pln(lc.amount)}
             {lc.diff !== null && (
               <>
                 {' '}(расчёт показывал {pln(lc.expectedAtEntry ?? 0)}, разница{' '}
@@ -112,8 +144,17 @@ export function BalancePage() {
         )}
         <div className="check-fields">
           <label>
-            Реально на счету, zł
-            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required placeholder="например 1250,50" />
+            На руках сейчас, zł
+            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required placeholder="счёт + наличные, например 3800" />
+          </label>
+          <label>
+            Отложено всего, zł
+            <input
+              inputMode="decimal"
+              value={saved ?? String(data.saved || '')}
+              onChange={(e) => setSaved(e.target.value)}
+              placeholder="например 5000"
+            />
           </label>
           <label>
             На дату
@@ -130,7 +171,7 @@ export function BalancePage() {
       <div className="panel">
         <h3>Сколько будет</h3>
         <p className="muted">
-          По графику, платежам и подтверждённым доходам. Колонка «С ожидаемыми» добавляет потенциальные доходы.
+          Зарплата минус обязательные платежи по графику и подтверждённые доходы. «Всего» включает отложенное. Колонка «с ожидаемыми» добавляет потенциальные доходы, когда они должны прийти.
         </p>
         <div className="table-wrap">
           <table>
@@ -139,8 +180,9 @@ export function BalancePage() {
                 <th>Конец месяца</th>
                 <th className="r">Придёт</th>
                 <th className="r">Уйдёт</th>
-                <th className="r">Остаток</th>
-                <th className="r">С ожидаемыми</th>
+                <th className="r">На руках</th>
+                <th className="r">Всего (с отложенным)</th>
+                <th className="r">Всего с ожидаемыми</th>
               </tr>
             </thead>
             <tbody>
@@ -149,10 +191,9 @@ export function BalancePage() {
                   <td>{monthTitle(m.month)}</td>
                   <td className="r">{m.income ? pln(m.income) : '—'}</td>
                   <td className="r">{m.spent ? `−${pln(m.spent)}` : '—'}</td>
-                  <td className={'r strong ' + tone(m.endBalance)}>{pln(m.endBalance)}</td>
-                  <td className="r">
-                    {m.endBalanceWithPotential !== m.endBalance ? pln(m.endBalanceWithPotential) : '—'}
-                  </td>
+                  <td className={'r ' + tone(m.endBalance)}>{pln(m.endBalance)}</td>
+                  <td className={'r strong ' + tone(m.totalEnd)}>{pln(m.totalEnd)}</td>
+                  <td className="r">{m.totalEndWithPotential !== m.totalEnd ? pln(m.totalEndWithPotential) : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -207,7 +248,7 @@ export function BalancePage() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Дата</th><th className="r">Реально</th><th className="r">Расчёт</th><th className="r">Разница</th><th>Заметка</th><th /></tr>
+                <tr><th>Дата</th><th className="r">На руках</th><th className="r">Отложено</th><th className="r">Расчёт</th><th className="r">Разница</th><th>Заметка</th><th /></tr>
               </thead>
               <tbody>
                 {data.checks.map((c) => {
@@ -216,6 +257,7 @@ export function BalancePage() {
                     <tr key={c.id}>
                       <td>{dayMonth(c.date)}</td>
                       <td className="r">{pln(c.amount)}</td>
+                      <td className="r">{c.saved == null ? '—' : pln(c.saved)}</td>
                       <td className="r">{c.expectedAtEntry == null ? '—' : pln(c.expectedAtEntry)}</td>
                       <td className={'r ' + (diff === null ? '' : tone(diff))}>{diff === null ? '—' : `${diff > 0 ? '+' : ''}${pln(diff)}`}</td>
                       <td>{c.note}</td>

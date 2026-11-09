@@ -289,6 +289,7 @@ export function createApp(
     id: Number(r.id),
     date: r.date,
     amount: Number(r.amount),
+    saved: r.saved === null || r.saved === undefined ? null : Number(r.saved),
     note: r.note ?? '',
     expectedAtEntry: r.expected_at_entry === null || r.expected_at_entry === undefined ? null : Number(r.expected_at_entry),
   });
@@ -555,6 +556,7 @@ export function createApp(
   const checkSchema = z.object({
     date,
     amount: z.number().finite().min(-10_000_000).max(10_000_000),
+    saved: z.number().finite().min(0).max(10_000_000).nullable().default(null),
     note: z.string().max(200).default(''),
   });
 
@@ -575,8 +577,8 @@ export function createApp(
       const prior = checks.filter((c) => c.date <= b.date);
       const expected = prior.length ? buildBalance(settings, shifts, expenses, incomes, goals, prior, b.date, 1).expectedNow : null;
       const r = await db.query(
-        'INSERT INTO balance_checks (user_id, date, amount, note, expected_at_entry, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-        [req.userId, b.date, b.amount, b.note, expected, new Date().toISOString()],
+        'INSERT INTO balance_checks (user_id, date, amount, saved, note, expected_at_entry, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+        [req.userId, b.date, b.amount, b.saved, b.note, expected, new Date().toISOString()],
       );
       res.status(201).json(mapCheck(r.rows[0]));
     }),

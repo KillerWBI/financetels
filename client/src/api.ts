@@ -64,7 +64,8 @@ export const api = {
   resetPassword: (token: string, password: string) => req<{ token: string }>('POST', '/auth/reset', { token, password }),
 
   balance: (months = 6) => req<BalanceData>('GET', `/balance?months=${months}`),
-  addCheck: (date: string, amount: number, note = '') => req('POST', '/balance/checks', { date, amount, note }),
+  addCheck: (date: string, amount: number, saved: number | null, note = '') =>
+    req('POST', '/balance/checks', { date, amount, saved, note }),
   deleteCheck: (id: number) => req('DELETE', `/balance/checks/${id}`),
 
   settings: () => req<Settings>('GET', '/settings'),

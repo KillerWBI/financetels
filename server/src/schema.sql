@@ -66,3 +66,6 @@ CREATE TABLE IF NOT EXISTS balance_checks (
   expected_at_entry NUMERIC(12,2),
   created_at TEXT NOT NULL
 );
+
+-- saved: сколько всего отложено на эту дату (NULL — не указывали, берётся предыдущее значение)
+ALTER TABLE balance_checks ADD COLUMN IF NOT EXISTS saved NUMERIC(12,2);

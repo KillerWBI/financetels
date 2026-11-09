@@ -96,6 +96,39 @@ test('будущие месяцы: баланс на конец месяца и 
   assert.equal(r.months[1].endBalance, 391.51);
 });
 
+test('сальдо: на руках 3800 + отложено 5000 = 8800; потенциально +13500 в феврале', () => {
+  const feb: ManualIncome[] = [{ name: 'Большой заказ', amount: 13500, date: '2027-02-15', status: 'potential' }];
+  const r = buildBalance(S, shifts, [gym, rent], feb, [], [{ date: TODAY, amount: 3800, saved: 5000 }], TODAY);
+  assert.equal(r.expectedNow, 3800);
+  assert.equal(r.saved, 5000);
+  assert.equal(r.total, 8800);
+  assert.equal(r.potential.total, 13500);
+  assert.equal(r.potential.totalWithPotential, 22300);
+  // отложенное не тратится: «можно потратить» считается только от денег на руках
+  assert.equal(r.safeToSpend, 3200); // 3800 − аренда 500 − зал 100 (до 7 декабря)
+  const nov = r.months.find((m) => m.month === '2026-11')!;
+  assert.equal(nov.endBalance, 3300);
+  assert.equal(nov.totalEnd, 8300);
+  const feb27 = r.months.find((m) => m.month === '2027-02')!;
+  assert.equal(round2(feb27.totalEndWithPotential - feb27.totalEnd), 13500);
+  // до февраля потенциал в «Всего с ожидаемыми» не виден
+  const jan = r.months.find((m) => m.month === '2027-01')!;
+  assert.equal(jan.totalEndWithPotential, jan.totalEnd);
+});
+
+test('отложено берётся из последней проверки, где оно указано', () => {
+  const r = buildBalance(S, shifts, [], [], [], [
+    { date: '2026-11-01', amount: 1000, saved: 5000 },
+    { date: '2026-11-08', amount: 900 }, // отложенное не указали — остаётся 5000
+  ], TODAY);
+  assert.equal(r.saved, 5000);
+  const r2 = buildBalance(S, shifts, [], [], [], [
+    { date: '2026-11-01', amount: 1000, saved: 5000 },
+    { date: '2026-11-08', amount: 900, saved: 5400 },
+  ], TODAY);
+  assert.equal(r2.saved, 5400);
+});
+
 // ---------- API ----------
 let app: ReturnType<typeof createApp>;
 let auth: Record<string, string> = {};
@@ -133,6 +166,17 @@ test('API: вторая проверка сохраняет, что показы
   assert.equal(r.body.safeToSpend, 700); // 1300 − 600
   assert.equal(r.body.checks.length, 2);
   assert.equal(r.body.checks[0].amount, 1300); // новые сверху
+});
+
+test('API: отложено сохраняется и входит в сальдо', async () => {
+  await request(app).post('/api/balance/checks').set(auth).send({ date: '2026-11-09', amount: 3800, saved: 5000 }).expect(201);
+  const r = await request(app).get('/api/balance?asOf=2026-11-09').set(auth).expect(200);
+  assert.equal(r.body.saved, 5000);
+  assert.equal(r.body.total, 8800);
+  assert.equal(r.body.checks[0].saved, 5000);
+  await request(app).post('/api/balance/checks').set(auth).send({ date: '2026-11-09', amount: 3800, saved: -5 }).expect(400);
+  // уберём эту проверку, чтобы не влиять на следующие тесты
+  await request(app).delete(`/api/balance/checks/${r.body.checks[0].id}`).set(auth).expect(200);
 });
 
 test('API: удаление проверки возвращает прежнюю точку отсчёта; чужие проверки недоступны', async () => {

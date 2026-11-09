@@ -47,7 +47,8 @@ describe('экран «Баланс»', () => {
     render(<BalancePage />);
     expect(await screen.findByText(/Сначала введите, сколько денег у вас реально/)).toBeTruthy();
 
-    await user.type(screen.getByLabelText(/Реально на счету/), '1000');
+    await user.type(screen.getByLabelText(/На руках сейчас/), '1000');
+    await user.type(screen.getByLabelText(/Отложено всего/), '5000');
     const date = screen.getByLabelText('На дату') as HTMLInputElement;
     await user.clear(date);
     await user.type(date, '2026-11-01');
@@ -59,13 +60,20 @@ describe('экран «Баланс»', () => {
     expect(within(card).getAllByText(/814,36/).length).toBeGreaterThan(0);
     expect(within(card).getByText(/1\s?414,36/)).toBeTruthy();
 
+    // сальдо: на руках + отложено = 6 414,36; потенциально +300 → 6 714,36
+    const saldo = screen.getByText('Сальдо сейчас').closest('.panel') as HTMLElement;
+    expect(within(saldo).getByText(/6\s?414,36/)).toBeTruthy();
+    const pot = screen.getByText('Потенциально').closest('.panel') as HTMLElement;
+    expect(within(pot).getByText(/6\s?714,36/)).toBeTruthy();
+    expect(within(pot).getByText(/Подработка/)).toBeTruthy();
+
     // потенциальный доход виден в прогнозе, но не в «можно потратить»
     const rowPot = screen.getByText('Подработка').closest('tr') as HTMLElement;
     expect(within(rowPot).getByText(/ожидается/)).toBeTruthy();
     expect(within(rowPot).getByText(/1\s?214,36/)).toBeTruthy();
 
     // реальная сумма отличается от расчёта: потратил больше, чем учтено
-    await user.type(screen.getByLabelText(/Реально на счету/), '1300');
+    await user.type(screen.getByLabelText(/На руках сейчас/), '1300');
     const d2 = screen.getByLabelText('На дату') as HTMLInputElement;
     await user.clear(d2);
     await user.type(d2, '2026-11-09');

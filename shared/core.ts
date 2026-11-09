@@ -350,7 +350,8 @@ export function goalPlan(s: Settings, goal: Goal, fromMonth: string, avgFree: nu
 export interface BalanceCheck {
   id?: number;
   date: string; // дата, на которую пользователь назвал реальную сумму
-  amount: number;
+  amount: number; // сколько на руках (счёт + наличные), можно тратить
+  saved?: number | null; // сколько всего отложено (не тратится); null — не указано, берётся прежнее
   note?: string;
   expectedAtEntry?: number | null; // что показывал расчёт в момент ввода
 }
@@ -452,7 +453,10 @@ export interface BalanceReport {
   today: string;
   hasAnchor: boolean;
   anchor: { date: string; amount: number } | null;
-  expectedNow: number; // сколько должно быть на счету сейчас по расчёту
+  expectedNow: number; // сколько должно быть на руках сейчас по расчёту
+  saved: number; // отложено всего (из последней проверки, где оно указано)
+  total: number; // сальдо сейчас: на руках + отложено
+  potential: { total: number; items: CashEvent[]; totalWithPotential: number }; // ожидаемые доходы в горизонте прогноза
   lastCheck: { date: string; amount: number; expectedAtEntry: number | null; diff: number | null } | null;
   nextPayday: { date: string; daysLeft: number; amount: number };
   dueBeforePayday: { total: number; items: CashEvent[] };
@@ -464,7 +468,7 @@ export interface BalanceReport {
   verdict: 'ok' | 'careful' | 'stop';
   lowest: { date: string; amount: number }; // самая низкая точка до выплаты
   timeline: TimelineRow[];
-  months: { month: string; endBalance: number; endBalanceWithPotential: number; income: number; spent: number }[];
+  months: { month: string; endBalance: number; endBalanceWithPotential: number; totalEnd: number; totalEndWithPotential: number; income: number; spent: number }[];
 }
 
 export function buildBalance(
@@ -486,6 +490,9 @@ export function buildBalance(
   const last = sorted[sorted.length - 1];
   const startDate = last ? last.date : today;
   const startAmount = last ? last.amount : 0;
+  // отложено: последнее указанное значение не позже сегодняшней даты
+  const lastSaved = [...sorted].reverse().find((c) => c.saved !== null && c.saved !== undefined);
+  const saved = round2(lastSaved?.saved ?? 0);
 
   // 1. Сколько должно быть сейчас
   const upToToday = cashEvents(s, shifts, expenses, incomes, startDate, today).filter((e) => e.kind !== 'potential');
@@ -526,6 +533,8 @@ export function buildBalance(
         month: r.label,
         endBalance: r.balance,
         endBalanceWithPotential: r.balanceWithPotential,
+        totalEnd: round2(r.balance + saved),
+        totalEndWithPotential: round2(r.balanceWithPotential + saved),
         income: round2(inMonth.filter((e) => e.kind !== 'potential' && e.amount > 0).reduce((a, e) => a + e.amount, 0)),
         spent: round2(-inMonth.filter((e) => e.amount < 0).reduce((a, e) => a + e.amount, 0)),
       };
@@ -564,6 +573,13 @@ export function buildBalance(
     hasAnchor: Boolean(last),
     anchor: last ? { date: last.date, amount: last.amount } : null,
     expectedNow,
+    saved,
+    total: round2(expectedNow + saved),
+    potential: (() => {
+      const items = timeline.filter((t) => t.kind === 'potential');
+      const sum = round2(items.reduce((a, t) => a + t.amount, 0));
+      return { total: sum, items, totalWithPotential: round2(expectedNow + saved + sum) };
+    })(),
     lastCheck,
     nextPayday: { date: payDate, daysLeft, amount: nextPay.totalNet },
     dueBeforePayday: { total: due, items: dueItems },
