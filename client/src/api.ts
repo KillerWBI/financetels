@@ -1,6 +1,8 @@
-import type { Expense, Goal, GoalPlan, ManualIncome, MonthCash, MonthWork, Settings, Shift, ShiftPay } from '../../shared/core';
+import type { BalanceCheck, BalanceReport, Expense, Goal, GoalPlan, ManualIncome, MonthCash, MonthWork, Settings, Shift, ShiftPay } from '../../shared/core';
 
-export type { Expense, Goal, GoalPlan, ManualIncome, MonthCash, MonthWork, Settings, Shift, ShiftPay };
+export type { BalanceCheck, BalanceReport, Expense, Goal, GoalPlan, ManualIncome, MonthCash, MonthWork, Settings, Shift, ShiftPay };
+
+export type BalanceData = BalanceReport & { checks: (BalanceCheck & { id: number })[] };
 
 export interface ShiftRow extends Shift {
   pay: ShiftPay;
@@ -60,6 +62,10 @@ export const api = {
     ),
   recoveryLink: (key: string, userId: number) => req<{ token: string; path: string }>('POST', '/auth/recovery/link', { key, userId }),
   resetPassword: (token: string, password: string) => req<{ token: string }>('POST', '/auth/reset', { token, password }),
+
+  balance: (months = 6) => req<BalanceData>('GET', `/balance?months=${months}`),
+  addCheck: (date: string, amount: number, note = '') => req('POST', '/balance/checks', { date, amount, note }),
+  deleteCheck: (id: number) => req('DELETE', `/balance/checks/${id}`),
 
   settings: () => req<Settings>('GET', '/settings'),
   saveSettings: (s: Partial<Settings>) => req<Settings>('PUT', '/settings', s),

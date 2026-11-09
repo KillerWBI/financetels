@@ -183,3 +183,10 @@ tr:last-child td { border-bottom: 0; }
   .big-num { font-size: 1.7rem; }
   .pattern { grid-template-columns: 1fr; }
 }
+
+.check-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 0.75rem; margin-top: 0.5rem; }
+.verdict { border-left: 6px solid var(--pos); }
+.verdict.warn { border-left-color: var(--day-edge); }
+.verdict.neg { border-left-color: var(--neg); }
+.verdict h3 { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.95rem; }
+tr.potential td { color: var(--muted); font-style: italic; }

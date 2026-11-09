@@ -338,3 +338,243 @@ export function goalPlan(s: Settings, goal: Goal, fromMonth: string, avgFree: nu
     reachable: gapPerMonth === 0,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Баланс: сколько денег сейчас, сколько будет и можно ли тратить.
+// Точка отсчёта — последняя ручная проверка («реально на счету X на дату D»).
+// От неё считаются события: выплаты (7-го), платежи, подтверждённые доходы.
+// Потенциальные доходы идут отдельным сценарием. Повседневные траты
+// (monthlyLiving) вычитаются равномерно по дням.
+// ---------------------------------------------------------------------------
+
+export interface BalanceCheck {
+  id?: number;
+  date: string; // дата, на которую пользователь назвал реальную сумму
+  amount: number;
+  note?: string;
+  expectedAtEntry?: number | null; // что показывал расчёт в момент ввода
+}
+
+export type CashEventKind = 'payout' | 'expense' | 'income' | 'potential' | 'marker';
+
+export interface CashEvent {
+  date: string;
+  kind: CashEventKind;
+  label: string;
+  amount: number; // со знаком: доход +, платёж −
+  payout?: { salaryMonth: string; bonusMonth: string; salaryNet: number; bonusNet: number };
+}
+
+export function addDays(date: string, n: number): string {
+  const d = parseDate(date);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export function dayDiff(from: string, to: string): number {
+  return Math.round((parseDate(to).getTime() - parseDate(from).getTime()) / 86400000);
+}
+
+const lastDayOf = (m: string): string => `${m}-${String(daysInMonth(m)).padStart(2, '0')}`;
+const clampDay = (m: string, day: number): string => `${m}-${String(Math.min(Math.max(day, 1), daysInMonth(m))).padStart(2, '0')}`;
+
+// Среднее число дней в месяце для дневного расхода
+export const livingPerDay = (s: Settings): number => (s.monthlyLiving * 12) / 365;
+
+// События в интервале (from, to]: from не включается, to включается.
+export function cashEvents(
+  s: Settings,
+  shifts: Shift[],
+  expenses: Expense[],
+  incomes: ManualIncome[],
+  from: string,
+  to: string,
+): CashEvent[] {
+  const out: CashEvent[] = [];
+  const inRange = (d: string): boolean => d > from && d <= to;
+
+  for (let m = monthOf(from); m <= monthOf(to); m = addMonths(m, 1)) {
+    const p = payoutForMonth(s, shifts, m);
+    if (p.totalNet !== 0 && inRange(p.date)) {
+      out.push({
+        date: p.date,
+        kind: 'payout',
+        label: 'Выплата',
+        amount: p.totalNet,
+        payout: { salaryMonth: p.salaryMonth, bonusMonth: p.bonusMonth, salaryNet: p.salaryNet, bonusNet: p.bonusNet },
+      });
+    }
+    for (const e of expenses) {
+      if (!expenseActive(e, m)) continue;
+      const d = clampDay(m, e.dayOfMonth);
+      if (inRange(d)) out.push({ date: d, kind: 'expense', label: e.name, amount: -e.amount });
+    }
+  }
+
+  for (const i of incomes) {
+    if (i.status === 'failed') continue;
+    if (i.status === 'confirmed') {
+      if (inRange(i.date)) out.push({ date: i.date, kind: 'income', label: i.name, amount: i.amount });
+    } else {
+      // ожидаемый: если дата уже прошла, а он не подтверждён — считаем, что придёт «завтра»
+      const d = i.date > from ? i.date : addDays(from, 1);
+      if (inRange(d)) out.push({ date: d, kind: 'potential', label: i.name, amount: i.amount });
+    }
+  }
+
+  const order: Record<CashEventKind, number> = { expense: 0, payout: 1, income: 1, potential: 2, marker: 3 };
+  return out.sort((a, b) => (a.date === b.date ? order[a.kind] - order[b.kind] : a.date < b.date ? -1 : 1));
+}
+
+function walk(
+  start: number,
+  startDate: string,
+  events: CashEvent[],
+  perDay: number,
+  withPotential: boolean,
+): number[] {
+  let bal = start;
+  let prev = startDate;
+  return events.map((e) => {
+    bal -= perDay * dayDiff(prev, e.date);
+    prev = e.date;
+    if (e.kind !== 'potential' || withPotential) bal += e.amount;
+    return bal;
+  });
+}
+
+export interface TimelineRow extends CashEvent {
+  balance: number; // без потенциальных
+  balanceWithPotential: number;
+}
+
+export interface BalanceReport {
+  today: string;
+  hasAnchor: boolean;
+  anchor: { date: string; amount: number } | null;
+  expectedNow: number; // сколько должно быть на счету сейчас по расчёту
+  lastCheck: { date: string; amount: number; expectedAtEntry: number | null; diff: number | null } | null;
+  nextPayday: { date: string; daysLeft: number; amount: number };
+  dueBeforePayday: { total: number; items: CashEvent[] };
+  incomesBeforePayday: number;
+  livingReserve: number;
+  safeToSpend: number; // сейчас, до следующей выплаты, без потенциальных доходов
+  goalsReserve: number; // сколько нужно отложить на цели в этом месяце
+  afterGoals: number;
+  verdict: 'ok' | 'careful' | 'stop';
+  lowest: { date: string; amount: number }; // самая низкая точка до выплаты
+  timeline: TimelineRow[];
+  months: { month: string; endBalance: number; endBalanceWithPotential: number; income: number; spent: number }[];
+}
+
+export function buildBalance(
+  s: Settings,
+  shifts: Shift[],
+  expenses: Expense[],
+  incomes: ManualIncome[],
+  goals: Goal[],
+  checks: BalanceCheck[],
+  today: string,
+  horizonMonths = 6,
+): BalanceReport {
+  const perDay = livingPerDay(s);
+  // последняя проверка: самая поздняя дата, при равенстве — последняя добавленная
+  const sorted = checks
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => (a.c.date === b.c.date ? a.i - b.i : a.c.date < b.c.date ? -1 : 1))
+    .map((x) => x.c);
+  const last = sorted[sorted.length - 1];
+  const startDate = last ? last.date : today;
+  const startAmount = last ? last.amount : 0;
+
+  // 1. Сколько должно быть сейчас
+  const upToToday = cashEvents(s, shifts, expenses, incomes, startDate, today).filter((e) => e.kind !== 'potential');
+  const nowEvents = walk(startAmount, startDate, upToToday, perDay, false);
+  const lastBal = nowEvents.length ? nowEvents[nowEvents.length - 1] : startAmount;
+  const lastEventDate = upToToday.length ? upToToday[upToToday.length - 1].date : startDate;
+  const expectedNow = round2(lastBal - perDay * Math.max(0, dayDiff(lastEventDate, today)));
+
+  // 2. Ближайшая выплата по графику
+  let payMonth = monthOf(today);
+  let payDate = clampDay(payMonth, s.payDay);
+  if (payDate <= today) {
+    payMonth = addMonths(payMonth, 1);
+    payDate = clampDay(payMonth, s.payDay);
+  }
+  const nextPay = payoutForMonth(s, shifts, payMonth);
+
+  // 3. Будущие события и два сценария
+  const horizonEnd = lastDayOf(addMonths(monthOf(today), horizonMonths - 1));
+  const future = cashEvents(s, shifts, expenses, incomes, today, horizonEnd);
+  const markers: CashEvent[] = [];
+  for (let m = monthOf(today); m <= monthOf(horizonEnd); m = addMonths(m, 1)) {
+    markers.push({ date: lastDayOf(m), kind: 'marker', label: m, amount: 0 });
+  }
+  const all = [...future, ...markers].sort((a, b) =>
+    a.date === b.date ? (a.kind === 'marker' ? 1 : 0) - (b.kind === 'marker' ? 1 : 0) : a.date < b.date ? -1 : 1,
+  );
+  const certain = walk(expectedNow, today, all, perDay, false);
+  const withPot = walk(expectedNow, today, all, perDay, true);
+  const rows = all.map((e, i) => ({ ...e, balance: round2(certain[i]), balanceWithPotential: round2(withPot[i]) }));
+
+  const timeline = rows.filter((r) => r.kind !== 'marker');
+  const months = rows
+    .filter((r) => r.kind === 'marker')
+    .map((r) => {
+      const inMonth = future.filter((e) => monthOf(e.date) === r.label);
+      return {
+        month: r.label,
+        endBalance: r.balance,
+        endBalanceWithPotential: r.balanceWithPotential,
+        income: round2(inMonth.filter((e) => e.kind !== 'potential' && e.amount > 0).reduce((a, e) => a + e.amount, 0)),
+        spent: round2(-inMonth.filter((e) => e.amount < 0).reduce((a, e) => a + e.amount, 0)),
+      };
+    });
+
+  // 4. Можно ли тратить: до следующей выплаты
+  const dueItems = future.filter((e) => e.kind === 'expense' && e.date <= payDate);
+  const due = round2(-dueItems.reduce((a, e) => a + e.amount, 0));
+  const incomesBefore = round2(
+    future.filter((e) => e.kind === 'income' && e.date < payDate).reduce((a, e) => a + e.amount, 0),
+  );
+  const daysLeft = dayDiff(today, payDate);
+  const livingReserve = round2(perDay * daysLeft);
+  const safeToSpend = round2(expectedNow - due + incomesBefore - livingReserve);
+
+  const fromMonth = monthOf(today);
+  const goalsReserve = round2(goals.reduce((a, g) => a + goalPlan(s, g, fromMonth, 0).perMonth, 0));
+  const afterGoals = round2(safeToSpend - goalsReserve);
+
+  let lowest = { date: today, amount: expectedNow };
+  all.forEach((e, i) => {
+    if (e.kind !== 'marker' && e.date <= payDate && certain[i] < lowest.amount) lowest = { date: e.date, amount: round2(certain[i]) };
+  });
+
+  const lastCheck = last
+    ? {
+        date: last.date,
+        amount: last.amount,
+        expectedAtEntry: last.expectedAtEntry ?? null,
+        diff: last.expectedAtEntry == null ? null : round2(last.amount - last.expectedAtEntry),
+      }
+    : null;
+
+  return {
+    today,
+    hasAnchor: Boolean(last),
+    anchor: last ? { date: last.date, amount: last.amount } : null,
+    expectedNow,
+    lastCheck,
+    nextPayday: { date: payDate, daysLeft, amount: nextPay.totalNet },
+    dueBeforePayday: { total: due, items: dueItems },
+    incomesBeforePayday: incomesBefore,
+    livingReserve,
+    safeToSpend,
+    goalsReserve,
+    afterGoals,
+    verdict: safeToSpend < 0 ? 'stop' : afterGoals < 0 ? 'careful' : 'ok',
+    lowest,
+    timeline,
+    months,
+  };
+}

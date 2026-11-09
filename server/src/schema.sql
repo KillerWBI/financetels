@@ -54,3 +54,15 @@ CREATE TABLE IF NOT EXISTS goals (
   saved NUMERIC(12,2) NOT NULL DEFAULT 0,
   deadline TEXT NOT NULL
 );
+
+-- Ручные проверки баланса: «реально на счету X на дату D».
+-- Последняя проверка — точка отсчёта для расчёта текущего и будущего баланса.
+CREATE TABLE IF NOT EXISTS balance_checks (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  expected_at_entry NUMERIC(12,2),
+  created_at TEXT NOT NULL
+);

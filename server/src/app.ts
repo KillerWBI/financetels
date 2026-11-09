@@ -18,6 +18,9 @@ import {
   type ManualIncome,
   type Settings,
   type Shift,
+  type BalanceCheck,
+  buildBalance,
+  addDays,
 } from '../../shared/core';
 
 const dateRe = /^\d{4}-\d{2}-\d{2}$/;
@@ -282,6 +285,18 @@ export function createApp(
     (await db.query('SELECT * FROM expenses WHERE user_id = $1 ORDER BY id', [userId])).rows.map(mapExpense);
   const loadIncomes = async (userId: number): Promise<ManualIncome[]> =>
     (await db.query('SELECT * FROM incomes WHERE user_id = $1 ORDER BY date', [userId])).rows.map(mapIncome);
+  const mapCheck = (r: any): BalanceCheck => ({
+    id: Number(r.id),
+    date: r.date,
+    amount: Number(r.amount),
+    note: r.note ?? '',
+    expectedAtEntry: r.expected_at_entry === null || r.expected_at_entry === undefined ? null : Number(r.expected_at_entry),
+  });
+  const loadChecks = async (userId: number): Promise<BalanceCheck[]> =>
+    (await db.query('SELECT * FROM balance_checks WHERE user_id = $1 ORDER BY date, id', [userId])).rows.map(mapCheck);
+  // сегодняшняя дата в Польше (сервер работает в UTC)
+  const warsawToday = (): string => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Warsaw' });
+
   const loadGoals = async (userId: number): Promise<Goal[]> =>
     (await db.query('SELECT * FROM goals WHERE user_id = $1 ORDER BY deadline', [userId])).rows.map(mapGoal);
 
@@ -513,6 +528,65 @@ export function createApp(
           leftover: round2(avgFree - plannedToSave),
         },
       });
+    }),
+  );
+
+  // ---------- баланс ----------
+  // GET /api/balance?months=6[&asOf=YYYY-MM-DD]: сколько сейчас, сколько будет, можно ли тратить
+  app.get(
+    '/api/balance',
+    wrap(async (req, res) => {
+      const months = z.coerce.number().int().min(1).max(24).default(6).parse(req.query.months);
+      const asOf = req.query.asOf ? date.parse(req.query.asOf) : warsawToday();
+      const [settings, shifts, expenses, incomes, goals, checks] = await Promise.all([
+        loadSettings(req.userId),
+        loadShifts(req.userId),
+        loadExpenses(req.userId),
+        loadIncomes(req.userId),
+        loadGoals(req.userId),
+        loadChecks(req.userId),
+      ]);
+      const usable = checks.filter((c) => c.date <= asOf);
+      const report = buildBalance(settings, shifts, expenses, incomes, goals, usable, asOf, months);
+      res.json({ ...report, checks: checks.slice().reverse() });
+    }),
+  );
+
+  const checkSchema = z.object({
+    date,
+    amount: z.number().finite().min(-10_000_000).max(10_000_000),
+    note: z.string().max(200).default(''),
+  });
+
+  app.post(
+    '/api/balance/checks',
+    wrap(async (req, res) => {
+      const b = checkSchema.parse(req.body);
+      if (b.date > addDays(warsawToday(), 1)) return void res.status(400).json({ error: 'Дата проверки не может быть в будущем' });
+      const [settings, shifts, expenses, incomes, goals, checks] = await Promise.all([
+        loadSettings(req.userId),
+        loadShifts(req.userId),
+        loadExpenses(req.userId),
+        loadIncomes(req.userId),
+        loadGoals(req.userId),
+        loadChecks(req.userId),
+      ]);
+      // что показывал расчёт на эту дату до ввода: сравнение с реальностью
+      const prior = checks.filter((c) => c.date <= b.date);
+      const expected = prior.length ? buildBalance(settings, shifts, expenses, incomes, goals, prior, b.date, 1).expectedNow : null;
+      const r = await db.query(
+        'INSERT INTO balance_checks (user_id, date, amount, note, expected_at_entry, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+        [req.userId, b.date, b.amount, b.note, expected, new Date().toISOString()],
+      );
+      res.status(201).json(mapCheck(r.rows[0]));
+    }),
+  );
+
+  app.delete(
+    '/api/balance/checks/:id',
+    wrap(async (req, res) => {
+      await db.query('DELETE FROM balance_checks WHERE id = $1 AND user_id = $2', [Number(req.params.id), req.userId]);
+      res.json({ ok: true });
     }),
   );
 

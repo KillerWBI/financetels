@@ -3,6 +3,7 @@ import { api, getToken, setToken } from './api';
 import { Login } from './pages/Login';
 import { Recovery } from './pages/Recovery';
 import { CalendarPage } from './pages/CalendarPage';
+import { BalancePage } from './pages/BalancePage';
 import { OverviewPage } from './pages/OverviewPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { GoalsPage } from './pages/GoalsPage';
@@ -10,6 +11,7 @@ import { IncomesPage } from './pages/IncomesPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 const TABS = [
+  { id: 'balance', label: 'Баланс' },
   { id: 'calendar', label: 'График' },
   { id: 'overview', label: 'Обзор' },
   { id: 'payments', label: 'Платежи' },
@@ -21,7 +23,7 @@ type TabId = (typeof TABS)[number]['id'];
 
 export function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
-  const [tab, setTab] = useState<TabId>('calendar');
+  const [tab, setTab] = useState<TabId>('balance');
   const [recovering, setRecovering] = useState(false);
   const resetToken = new URLSearchParams(window.location.search).get('reset') ?? undefined;
 
@@ -84,6 +86,7 @@ export function App() {
         </button>
       </header>
       <main className="page">
+        {tab === 'balance' && <BalancePage />}
         {tab === 'calendar' && <CalendarPage />}
         {tab === 'overview' && <OverviewPage />}
         {tab === 'payments' && <PaymentsPage />}
