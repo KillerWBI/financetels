@@ -2,9 +2,10 @@ import { useState } from 'react';
 
 interface Props {
   onDone: (mode: 'login' | 'register', email: string, password: string) => Promise<void>;
+  onForgot: () => void;
 }
 
-export function Login({ onDone }: Props) {
+export function Login({ onDone, onForgot }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,6 +49,9 @@ export function Login({ onDone }: Props) {
         <button className="primary" disabled={busy}>
           {mode === 'login' ? 'Войти' : 'Создать аккаунт'}
         </button>
+        {mode === 'login' && (
+          <button type="button" className="link" onClick={onForgot}>Забыли пароль?</button>
+        )}
         <button type="button" className="link" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
           {mode === 'login' ? 'Нет аккаунта? Создать' : 'Уже есть аккаунт? Войти'}
         </button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, getToken, setToken } from './api';
 import { Login } from './pages/Login';
+import { Recovery } from './pages/Recovery';
 import { CalendarPage } from './pages/CalendarPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { PaymentsPage } from './pages/PaymentsPage';
@@ -21,12 +22,32 @@ type TabId = (typeof TABS)[number]['id'];
 export function App() {
   const [authed, setAuthed] = useState(Boolean(getToken()));
   const [tab, setTab] = useState<TabId>('calendar');
+  const [recovering, setRecovering] = useState(false);
+  const resetToken = new URLSearchParams(window.location.search).get('reset') ?? undefined;
 
   useEffect(() => {
     const onLogout = () => setAuthed(false);
     window.addEventListener('budget-logout', onLogout);
     return () => window.removeEventListener('budget-logout', onLogout);
   }, []);
+
+  if (!authed && (recovering || resetToken)) {
+    return (
+      <Recovery
+        resetToken={resetToken}
+        onBack={() => {
+          if (resetToken) window.history.replaceState(null, '', '/');
+          setRecovering(false);
+          if (resetToken) window.location.reload();
+        }}
+        onDone={(t) => {
+          setToken(t);
+          window.history.replaceState(null, '', '/');
+          window.location.reload();
+        }}
+      />
+    );
+  }
 
   if (!authed) {
     return (
@@ -36,6 +57,7 @@ export function App() {
           setToken(r.token);
           setAuthed(true);
         }}
+        onForgot={() => setRecovering(true)}
       />
     );
   }

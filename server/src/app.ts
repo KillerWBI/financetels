@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { Db } from './db';
 import {
@@ -80,7 +81,11 @@ const wrap =
     fn(req as Request & { userId: number }, res).catch(next);
   };
 
-export function createApp(db: Db, jwtSecret = process.env.JWT_SECRET ?? 'dev-secret-change-me'): express.Express {
+export function createApp(
+  db: Db,
+  jwtSecret = process.env.JWT_SECRET ?? 'dev-secret-change-me',
+  recoveryKey: string | undefined = process.env.RECOVERY_KEY,
+): express.Express {
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -119,6 +124,99 @@ export function createApp(db: Db, jwtSecret = process.env.JWT_SECRET ?? 'dev-sec
     }),
   );
 
+
+  // ---------- восстановление доступа (бета, без почты) ----------
+  // Работает только если на сервере задан RECOVERY_KEY (не короче 16 символов).
+  // Без ключа никто не может ни увидеть список аккаунтов, ни получить ссылку сброса.
+  const sha = (x: string): Buffer => createHash('sha256').update(x).digest();
+  const fingerprint = (hash: string): string => createHash('sha256').update(hash).digest('hex').slice(0, 16);
+  const recoveryOn = Boolean(recoveryKey && recoveryKey.length >= 16);
+  let failures: number[] = [];
+  const checkKey = (key: unknown): 'ok' | 'bad' | 'locked' => {
+    const now = Date.now();
+    failures = failures.filter((t) => now - t < 15 * 60 * 1000);
+    if (failures.length >= 10) return 'locked';
+    const ok = typeof key === 'string' && timingSafeEqual(sha(key), sha(recoveryKey as string));
+    if (!ok) failures.push(now);
+    return ok ? 'ok' : 'bad';
+  };
+  const recoveryGuard = (req: Request, res: Response): boolean => {
+    if (!recoveryOn) {
+      res.status(404).json({ error: 'Восстановление не включено на сервере' });
+      return false;
+    }
+    const k = checkKey(req.body?.key);
+    if (k === 'locked') {
+      res.status(429).json({ error: 'Слишком много попыток. Подождите 15 минут.' });
+      return false;
+    }
+    if (k === 'bad') {
+      res.status(403).json({ error: 'Неверный ключ восстановления' });
+      return false;
+    }
+    return true;
+  };
+
+  app.post(
+    '/api/auth/recovery/accounts',
+    wrap(async (req, res) => {
+      if (!recoveryGuard(req, res)) return;
+      const users = await db.query('SELECT id, email, created_at FROM users ORDER BY id');
+      const counts: Record<string, Map<number, number>> = {};
+      for (const t of ['shifts', 'expenses', 'incomes', 'goals']) {
+        const c = await db.query(`SELECT user_id, COUNT(*) AS n FROM ${t} GROUP BY user_id`);
+        counts[t] = new Map(c.rows.map((x: any) => [Number(x.user_id), Number(x.n)]));
+      }
+      res.json(
+        users.rows.map((x: any) => ({
+          id: Number(x.id),
+          email: x.email,
+          createdAt: x.created_at,
+          shifts: counts.shifts.get(Number(x.id)) ?? 0,
+          expenses: counts.expenses.get(Number(x.id)) ?? 0,
+          incomes: counts.incomes.get(Number(x.id)) ?? 0,
+          goals: counts.goals.get(Number(x.id)) ?? 0,
+        })),
+      );
+    }),
+  );
+
+  app.post(
+    '/api/auth/recovery/link',
+    wrap(async (req, res) => {
+      if (!recoveryGuard(req, res)) return;
+      const userId = z.object({ userId: z.number().int() }).parse(req.body).userId;
+      const r = await db.query('SELECT id, password_hash FROM users WHERE id = $1', [userId]);
+      if (!r.rows[0]) return void res.status(404).json({ error: 'Аккаунт не найден' });
+      const token = jwt.sign({ sub: userId, purpose: 'reset', fp: fingerprint(r.rows[0].password_hash) }, jwtSecret, {
+        expiresIn: '30m',
+      });
+      res.json({ token, path: `/?reset=${encodeURIComponent(token)}` });
+    }),
+  );
+
+  app.post(
+    '/api/auth/reset',
+    wrap(async (req, res) => {
+      const body = z.object({ token: z.string(), password: z.string().min(6) }).parse(req.body);
+      let payload: any;
+      try {
+        payload = jwt.verify(body.token, jwtSecret);
+      } catch {
+        return void res.status(400).json({ error: 'Ссылка недействительна или устарела' });
+      }
+      if (payload?.purpose !== 'reset') return void res.status(400).json({ error: 'Ссылка недействительна или устарела' });
+      const r = await db.query('SELECT id, password_hash FROM users WHERE id = $1', [Number(payload.sub)]);
+      const row = r.rows[0];
+      if (!row || fingerprint(row.password_hash) !== payload.fp) {
+        return void res.status(400).json({ error: 'Ссылка уже использована или устарела' });
+      }
+      const hash = await bcrypt.hash(body.password, 10);
+      await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, Number(row.id)]);
+      res.json({ token: sign(Number(row.id)) });
+    }),
+  );
+
   // Проверка здоровья для хостинга (без входа)
   app.get(
     '/api/health',
@@ -133,7 +231,8 @@ export function createApp(db: Db, jwtSecret = process.env.JWT_SECRET ?? 'dev-sec
     const h = req.headers.authorization;
     if (!h?.startsWith('Bearer ')) return void res.status(401).json({ error: 'Нужен вход' });
     try {
-      const payload = jwt.verify(h.slice(7), jwtSecret) as unknown as { sub: number };
+      const payload = jwt.verify(h.slice(7), jwtSecret) as unknown as { sub: number; purpose?: string };
+      if (payload.purpose) throw new Error('not an access token');
       (req as Request & { userId: number }).userId = Number(payload.sub);
       next();
     } catch {

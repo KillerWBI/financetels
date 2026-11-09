@@ -52,6 +52,15 @@ export const api = {
   login: (email: string, password: string) => req<{ token: string }>('POST', '/auth/login', { email, password }),
   register: (email: string, password: string) => req<{ token: string }>('POST', '/auth/register', { email, password }),
 
+  recoveryAccounts: (key: string) =>
+    req<{ id: number; email: string; createdAt: string; shifts: number; expenses: number; incomes: number; goals: number }[]>(
+      'POST',
+      '/auth/recovery/accounts',
+      { key },
+    ),
+  recoveryLink: (key: string, userId: number) => req<{ token: string; path: string }>('POST', '/auth/recovery/link', { key, userId }),
+  resetPassword: (token: string, password: string) => req<{ token: string }>('POST', '/auth/reset', { token, password }),
+
   settings: () => req<Settings>('GET', '/settings'),
   saveSettings: (s: Partial<Settings>) => req<Settings>('PUT', '/settings', s),
 
