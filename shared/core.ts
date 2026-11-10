@@ -351,7 +351,7 @@ export interface BalanceCheck {
   id?: number;
   date: string; // дата, на которую пользователь назвал реальную сумму
   amount: number; // сколько на руках (счёт + наличные), можно тратить
-  saved?: number | null; // сколько всего отложено (не тратится); null — не указано, берётся прежнее
+  saved?: number | null; // отложено вне целей (не тратится); null — не указано, берётся прежнее. Суммы целей добавляются автоматически
   note?: string;
   expectedAtEntry?: number | null; // что показывал расчёт в момент ввода
 }
@@ -454,7 +454,9 @@ export interface BalanceReport {
   hasAnchor: boolean;
   anchor: { date: string; amount: number } | null;
   expectedNow: number; // сколько должно быть на руках сейчас по расчёту
-  saved: number; // отложено всего (из последней проверки, где оно указано)
+  saved: number; // отложено всего = накопленное по целям + отложено вне целей
+  goalsSaved: number; // сумма «накоплено» по целям (вкладка «Цели»)
+  otherSaved: number; // отложено вне целей (из последней проверки, где указано)
   total: number; // сальдо сейчас: на руках + отложено
   potential: { total: number; items: CashEvent[]; totalWithPotential: number }; // ожидаемые доходы в горизонте прогноза
   lastCheck: { date: string; amount: number; expectedAtEntry: number | null; diff: number | null } | null;
@@ -492,7 +494,9 @@ export function buildBalance(
   const startAmount = last ? last.amount : 0;
   // отложено: последнее указанное значение не позже сегодняшней даты
   const lastSaved = [...sorted].reverse().find((c) => c.saved !== null && c.saved !== undefined);
-  const saved = round2(lastSaved?.saved ?? 0);
+  const otherSaved = round2(lastSaved?.saved ?? 0);
+  const goalsSaved = round2(goals.reduce((a, g) => a + g.saved, 0));
+  const saved = round2(goalsSaved + otherSaved);
 
   // 1. Сколько должно быть сейчас
   const upToToday = cashEvents(s, shifts, expenses, incomes, startDate, today).filter((e) => e.kind !== 'potential');
@@ -574,6 +578,8 @@ export function buildBalance(
     anchor: last ? { date: last.date, amount: last.amount } : null,
     expectedNow,
     saved,
+    goalsSaved,
+    otherSaved,
     total: round2(expectedNow + saved),
     potential: (() => {
       const items = timeline.filter((t) => t.kind === 'potential');

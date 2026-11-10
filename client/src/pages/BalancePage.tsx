@@ -77,7 +77,10 @@ export function BalancePage() {
         <div className="panel">
           <h3>Отложено</h3>
           <p className="big-num">{pln(data.saved)}</p>
-          <p className="muted">не тратится</p>
+          <p className="muted">
+            не тратится: в целях {pln(data.goalsSaved)}
+            {data.otherSaved > 0 ? `, вне целей ${pln(data.otherSaved)}` : ''}
+          </p>
         </div>
         <div className="panel">
           <h3>Сальдо сейчас</h3>
@@ -128,7 +131,7 @@ export function BalancePage() {
       <form className="panel" onSubmit={submit}>
         <h3>Сколько реально сейчас (сверка раз в месяц и после больших трат)</h3>
         <p className="muted">
-          Впишите, сколько реально на руках и сколько всего отложено. Расчёт сверится с реальностью и дальше пойдёт от этих сумм. Раз в месяц достаточно обновлять обе суммы: траты и откладывание подтянутся сами.
+          Впишите, сколько реально на руках. Накопленное по целям (вкладка «Цели») подтягивается в «Отложено» само, а здесь можно добавить отложенное вне целей. Расчёт сверится с реальностью и дальше пойдёт от этих сумм. Раз в месяц достаточно обновлять обе суммы: траты и откладывание подтянутся сами.
         </p>
         {lc && (
           <p className="hint">
@@ -148,10 +151,10 @@ export function BalancePage() {
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required placeholder="счёт + наличные, например 3800" />
           </label>
           <label>
-            Отложено всего, zł
+            Отложено вне целей, zł
             <input
               inputMode="decimal"
-              value={saved ?? String(data.saved || '')}
+              value={saved ?? String(data.otherSaved || '')}
               onChange={(e) => setSaved(e.target.value)}
               placeholder="например 5000"
             />
@@ -248,7 +251,7 @@ export function BalancePage() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Дата</th><th className="r">На руках</th><th className="r">Отложено</th><th className="r">Расчёт</th><th className="r">Разница</th><th>Заметка</th><th /></tr>
+                <tr><th>Дата</th><th className="r">На руках</th><th className="r">Вне целей</th><th className="r">Расчёт</th><th className="r">Разница</th><th>Заметка</th><th /></tr>
               </thead>
               <tbody>
                 {data.checks.map((c) => {

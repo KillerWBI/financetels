@@ -116,6 +116,19 @@ test('сальдо: на руках 3800 + отложено 5000 = 8800; пот�
   assert.equal(jan.totalEndWithPotential, jan.totalEnd);
 });
 
+test('отложено = накопленное по целям + вне целей: цель «Машина» 5000 попадает в сальдо сама', () => {
+  const car: Goal = { name: 'Машина', target: 20000, saved: 5000, deadline: '2027-11' };
+  const r = buildBalance(S, shifts, [], [], [car], [{ date: TODAY, amount: 3800 }], TODAY);
+  assert.equal(r.goalsSaved, 5000);
+  assert.equal(r.otherSaved, 0);
+  assert.equal(r.saved, 5000);
+  assert.equal(r.total, 8800);
+  // плюс отложенное вне целей
+  const r2 = buildBalance(S, shifts, [], [], [car], [{ date: TODAY, amount: 3800, saved: 700 }], TODAY);
+  assert.equal(r2.saved, 5700);
+  assert.equal(r2.total, 9500);
+});
+
 test('отложено берётся из последней проверки, где оно указано', () => {
   const r = buildBalance(S, shifts, [], [], [], [
     { date: '2026-11-01', amount: 1000, saved: 5000 },

@@ -31,6 +31,8 @@ beforeAll(async () => {
   await post('/api/expenses', 'POST', { name: 'Зал', amount: 100, dayOfMonth: 5, startMonth: '2026-01', endMonth: null });
   await post('/api/expenses', 'POST', { name: 'Аренда', amount: 500, dayOfMonth: 15, startMonth: '2026-01', endMonth: null });
   await post('/api/incomes', 'POST', { name: 'Подработка', amount: 300, date: '2026-11-20', status: 'potential' });
+  // цель «Машина» с накопленными 5000 должна сама попасть в «Отложено»
+  await post('/api/goals', 'POST', { name: 'Машина', target: 5000, saved: 5000, deadline: '2027-11' });
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-11-09T10:00:00Z'));
 });
@@ -48,7 +50,7 @@ describe('экран «Баланс»', () => {
     expect(await screen.findByText(/Сначала введите, сколько денег у вас реально/)).toBeTruthy();
 
     await user.type(screen.getByLabelText(/На руках сейчас/), '1000');
-    await user.type(screen.getByLabelText(/Отложено всего/), '5000');
+    expect(screen.getByLabelText(/Отложено вне целей/)).toBeTruthy();
     const date = screen.getByLabelText('На дату') as HTMLInputElement;
     await user.clear(date);
     await user.type(date, '2026-11-01');
@@ -60,6 +62,9 @@ describe('экран «Баланс»', () => {
     expect(within(card).getAllByText(/814,36/).length).toBeGreaterThan(0);
     expect(within(card).getByText(/1\s?414,36/)).toBeTruthy();
 
+    const saved = screen.getByText('Отложено').closest('.panel') as HTMLElement;
+    expect(within(saved).getByText(/5\s?000,00/)).toBeTruthy();
+    expect(within(saved).getByText(/в целях/)).toBeTruthy();
     // сальдо: на руках + отложено = 6 414,36; потенциально +300 → 6 714,36
     const saldo = screen.getByText('Сальдо сейчас').closest('.panel') as HTMLElement;
     expect(within(saldo).getByText(/6\s?414,36/)).toBeTruthy();
