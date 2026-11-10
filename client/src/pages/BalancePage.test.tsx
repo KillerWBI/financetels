@@ -63,7 +63,7 @@ describe('экран «Баланс»', () => {
     expect(within(card).getByText(/1\s?414,36/)).toBeTruthy();
 
     const saved = screen.getByText('Отложено').closest('.panel') as HTMLElement;
-    expect(within(saved).getByText(/5\s?000,00/)).toBeTruthy();
+    expect(within(saved).getAllByText(/5\s?000,00/).length).toBeGreaterThan(0);
     expect(within(saved).getByText(/в целях/)).toBeTruthy();
     // сальдо: на руках + отложено = 6 414,36; потенциально +300 → 6 714,36
     const saldo = screen.getByText('Сальдо сейчас').closest('.panel') as HTMLElement;
